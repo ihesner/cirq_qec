@@ -52,7 +52,7 @@ def cirq_noisify_stim(clean_circuit:cq.Circuit, noise_model,
             else:
                 print("Whats Happening Here?", op) # Hopefully nothing
 
-        # Add Idle Noise
+        # Add Idle Noise on other qubits
         for qubit in system_qubits:
             if qubit in operated_qubits:
                 pass # No idle noise added
