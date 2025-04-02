@@ -5,105 +5,7 @@ import stimcirq as sc
 import stim
 
 from src.circuit_generation import generate_split_circuit
-from src.noisify import noisify
-
-def cirq_noisify_stim(clean_circuit:cq.Circuit, noise_model, 
-                 use_average=True, pipelined=True):
-
-    moments = []
-    system_qubits = clean_circuit.all_qubits()
-
-    # Likely need to initialize qutrits here.
-
-    for moment in clean_circuit:
-        pre_noise, post_noise = [], []
-        operated_qubits = []
-
-        # Adding Gate Noise
-        for op in moment:
-
-            for qubit in op.qubits:
-                operated_qubits.append(qubit)
-            qb = "average" if use_average else op.qubits[0].x
-
-            # Measurement Noise
-            if isinstance(op.gate, cq.MeasurementGate):
-                pre_noise.append(
-                    cq.bit_flip(p=noise_model[qb]['ro']).on_each(*op.qubits))
-
-            # Two Qubit Gate Noise
-            elif type(op.gate) in (cq.CZPowGate, cq.CXPowGate):
-                q1, q2 = op.qubits[0].x, op.qubits[1].x
-                p = noise_model['average']['two_qubit'] if use_average\
-                    else noise_model[q1]['two_qubit'][q2]
-                post_noise.append(
-                    cq.depolarize(p, n_qubits=2).on(*op.qubits)
-                )
-                
-            # Single Qubit Noise
-            elif type(op.gate) in (cq.YPowGate, cq.XPowGate, 
-                                cq.ops.pauli_gates._PauliY, 
-                                cq.ops.pauli_gates._PauliX,
-                               cq.ops.common_gates.HPowGate):
-                post_noise.append(
-                    cq.depolarize(noise_model[qb]['single']).on_each(*op.qubits))
-
-            # Virtual Z Noise
-            elif type(op.gate) in (cq.ZPowGate, 
-                                cq.ops.pauli_gates._PauliZ):
-                pass # print("Virtual Z gate")
-            else:
-                print("Whats Happening Here?", op) # Hopefully nothing
-
-        # Add Idle Noise on other qubits
-        for qubit in system_qubits:
-            if qubit in operated_qubits:
-                pass # No idle noise added
-            else:
-                qb = 'average' if use_average else qubit.x
-                # Z Gates
-                if type(op.gate) in (cq.ZPowGate, 
-                        cq.ops.pauli_gates._PauliZ):
-                    pass # Virtual Z gate, instantaneous
-                # Measurement 
-                elif isinstance(op.gate, cq.MeasurementGate):
-                    if pipelined:
-                        pass # No idling for pipelined approach
-                    else:
-                        post_noise.append(cq.asymmetric_depolarize(
-                                        p_x=noise_model[qb]['idle']['M'][0],
-                                        p_y=noise_model[qb]['idle']['M'][1],
-                                        p_z=noise_model[qb]['idle']['M'][2],
-                                        ).on(qubit)
-                        )
-                # Two-qubit Gate
-                elif isinstance(op.gate, cq.CZPowGate):
-                    post_noise.append(cq.asymmetric_depolarize(
-                                    p_x=noise_model[qb]['idle']['CZ'][0],
-                                    p_y=noise_model[qb]['idle']['CZ'][1],
-                                    p_z=noise_model[qb]['idle']['CZ'][2],
-                                    ).on(qubit)
-                    )
-                # Single qubit gates
-                elif type(op.gate) in (cq.YPowGate, cq.XPowGate, 
-                               cq.ops.pauli_gates._PauliY, 
-                               cq.ops.pauli_gates._PauliX,
-                               cq.ops.common_gates.HPowGate):
-                    post_noise.append(cq.asymmetric_depolarize(
-                                    p_x=noise_model[qb]['idle']['else'][0],
-                                    p_y=noise_model[qb]['idle']['else'][1],
-                                    p_z=noise_model[qb]['idle']['else'][2],
-                                    ).on(qubit)
-                    )
-                else:
-                    raise NameError(f"Is noise configured for {op.gate} type gates?")
-
-        moments.append(cq.Moment(pre_noise))
-        moments.append(moment)
-        moments.append(cq.Moment(post_noise))
-
-    return cq.Circuit(moments)
-# End cirq_noisify
+from src.noisify import *
 
 
 def get_operator_values(mmts,
@@ -168,14 +70,21 @@ def clean_stim_conversion(converted_circuit):
 # End clean_stim_conversion
 
 
-def convert_to_cirq(circuit:stim.Circuit, noise_model=None):
+def convert_to_cirq(circuit:stim.Circuit, noise_model=None,
+                    simulation_noise=None):
 
     cirq_circuit = sc.stim_circuit_to_cirq_circuit(circuit)
     clean_cirq_circuit = clean_stim_conversion(cirq_circuit)
     if noise_model is not None:
-        clean_cirq_circuit = cirq_noisify_stim(clean_cirq_circuit, 
+        if simulation_noise == 'stim':
+            clean_cirq_circuit = cirq_noisify_stim(clean_cirq_circuit, 
                                           noise_model=noise_model)
-
+        elif simulation_noise == 'idle':
+            clean_cirq_circuit = cirq_noisify_idle(clean_cirq_circuit, 
+                                          noise_model=noise_model)
+        else:
+            raise AttributeError("Specify a specific cirq simulation method.")
+        
     return clean_cirq_circuit
 # End convert_to_cirq
     
@@ -183,7 +92,8 @@ def convert_to_cirq(circuit:stim.Circuit, noise_model=None):
 def get_expectation(readout='zz', init='z', shots=int(1e4), 
                     noise_model=None, average=None, p_eff=None,
                     rotate=False, factor=1,
-                    simulation='stim', arb_init=False):
+                    simulation='stim', arb_init=False,
+                    cirq_method=None):
     """_summary_
 
     Args:
@@ -220,7 +130,8 @@ def get_expectation(readout='zz', init='z', shots=int(1e4),
     elif simulation == 'cirq':
         simulator = cq.Simulator()
 
-        cirq_circuit = convert_to_cirq(stim_circuit, noise_model=noise_model)
+        cirq_circuit = convert_to_cirq(stim_circuit, noise_model=noise_model,
+                                       simulation_noise=cirq_method)
         results = simulator.run(cirq_circuit, repetitions=shots)
         mmts = results.data.to_numpy(dtype=np.bool_)
         dets, log_ops = converter.convert(measurements=mmts, 

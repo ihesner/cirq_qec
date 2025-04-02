@@ -109,7 +109,7 @@ def generate_split_circuit(initialize="z",
                            include_observable=True,
                            preselect_mmt=True,
                            excite=False,
-                           arb_init=True):
+                           arb_init=False):
     """Generates a stim circuit based on the repetition code split operation 
     for Ilya and Micheal's upcoming split paper. 
 
