@@ -1,7 +1,7 @@
 import stim
 import cirq as cq
 import numpy as np
-
+from src.qutrit_gates import *
 
 
 def noisify(old_circuit:stim.Circuit,
@@ -300,6 +300,144 @@ def cirq_noisify_idle(clean_circuit:cq.Circuit, noise_model,
     system_qubits = clean_circuit.all_qubits()
 
     # Likely need to initialize qutrits here.
+
+    for moment in clean_circuit:
+        pre_noise, post_noise, extra_noise = [], [], []
+        operated_qubits = []
+
+        # Adding Gate Noise
+        for op in moment:
+
+            for qubit in op.qubits:
+                operated_qubits.append(qubit)
+            qb = "average" if use_average else op.qubits[0].x
+
+            # Measurement Noise
+            if isinstance(op.gate, cq.MeasurementGate):
+                pre_noise.append(
+                    cq.bit_flip(p=noise_model[qb]['ro']).on_each(*op.qubits))
+
+            # Two Qubit Gate Noise
+            elif type(op.gate) in (cq.CZPowGate, cq.CXPowGate):
+                q1, q2 = op.qubits[0].x, op.qubits[1].x
+                p = noise_model['average']['two_qubit'] if use_average\
+                    else noise_model[q1]['two_qubit'][q2]
+                post_noise.append(
+                    cq.depolarize(p, n_qubits=2).on(*op.qubits)
+                )
+                
+            # Single Qubit Noise
+            elif type(op.gate) in (cq.YPowGate, cq.XPowGate, 
+                                cq.ops.pauli_gates._PauliY, 
+                                cq.ops.pauli_gates._PauliX,
+                               cq.ops.common_gates.HPowGate):
+                post_noise.append(
+                    cq.depolarize(noise_model[qb]['single']).on_each(*op.qubits))
+
+            # Virtual Z Noise
+            elif type(op.gate) in (cq.ZPowGate, 
+                                cq.ops.pauli_gates._PauliZ):
+                pass # print("Virtual Z gate")
+            else:
+                print("Whats Happening Here?", op) # Hopefully nothing
+
+        # Add Idle Noise on other qubits
+        t2 = "t2_echo" if echo else "t2_star"
+        for qubit in system_qubits:
+            if qubit in operated_qubits:
+                pass # No idle noise added
+            else:
+                qb = 'average' if use_average else qubit.x
+                # Z Gates
+                if type(op.gate) in (cq.ZPowGate, 
+                        cq.ops.pauli_gates._PauliZ):
+                    pass # Virtual Z gate, instantaneous
+                # Measurement 
+                elif isinstance(op.gate, cq.MeasurementGate):
+                    if pipelined:
+                        pass # No idling for pipelined approach
+                    else:
+                        # T1 decay
+                        amp_damp = cq.AmplitudeDampingChannel(
+                            gamma=1-np.exp(-timings['M']/noise_model[qb]['t1'])
+                            ).on(qubit)
+                        # T2 decay
+                        phase_damp = cq.phase_flip(
+                                p=1-np.exp(-timings['M']/noise_model[qb][t2])
+                                ).on(qubit)
+                        post_noise.append(amp_damp)
+                        extra_noise.append(phase_damp)
+
+                # Two-qubit Gate
+                elif isinstance(op.gate, cq.CZPowGate):
+                    # T1 decay
+                    amp_damp = cq.AmplitudeDampingChannel(
+                        gamma=1-np.exp(-timings['CZ']/noise_model[qb]['t1'])
+                        ).on(qubit)
+                    # T2 decay
+                    phase_damp = cq.phase_flip(
+                            p=1-np.exp(-timings['CZ']/noise_model[qb][t2])
+                            ).on(qubit)
+                    post_noise.append(amp_damp)
+                    extra_noise.append(phase_damp)
+                # Single qubit gates
+                elif type(op.gate) in (cq.YPowGate, cq.XPowGate, 
+                               cq.ops.pauli_gates._PauliY, 
+                               cq.ops.pauli_gates._PauliX,
+                               cq.ops.common_gates.HPowGate):
+                    # T1 decay
+                    amp_damp = cq.AmplitudeDampingChannel(
+                        gamma=1-np.exp(-timings['else']/noise_model[qb]['t1'])
+                        ).on(qubit)
+                    # T2 decay
+                    phase_damp = cq.phase_flip(
+                            p=1-np.exp(-timings['else']/noise_model[qb][t2])
+                            ).on(qubit)
+                    post_noise.append(amp_damp)
+                    extra_noise.append(phase_damp)
+                else:
+                    raise NameError(f"Is noise configured for {op.gate} type gates?")
+
+        moments.append(cq.Moment(pre_noise))
+        moments.append(moment)
+        moments.append(cq.Moment(post_noise))
+        moments.append(cq.Moment(extra_noise))
+
+    return cq.Circuit(moments)
+# End cirq_noisify
+
+
+def cirq_noisify_leakage(clean_circuit:cq.Circuit, noise_model, 
+                 use_average=True, pipelined=True,
+                 timings={"CZ": 140e-9, "M": 400e-9, "else": 48e-9},
+                 echo=True):
+    """This method takes a noiseless cirq circuit and adds noise based on the 
+    noise model provided. This noisification method adds more sophisticated 
+    idle noise than just the stim based error model.
+
+    Args:
+        clean_circuit (cq.Circuit): Noiseless 
+        noise_model (_type_): _description_
+        use_average (bool, optional): Uses average value instead of qubit 
+            specific values. Defaults to True.
+        pipelined (bool, optional): Skip idle noise to qubits not being 
+            measured during measurements. Defaults to True.
+
+    Raises:
+        NameError: _description_
+
+    Returns:
+        cirq.Circuit: Noisified circuit.
+    """
+
+    moments = []
+    system_qubits = clean_circuit.all_qubits()
+
+    # Likely need to initialize qutrits here.
+    qutrits = []
+    for qb in clean_circuit.all_qubits():
+        qutrits.append(cq.LineQid(qb.x, dimension=3))
+    system_qutrits = frozenset(qutrits)
 
     for moment in clean_circuit:
         pre_noise, post_noise, extra_noise = [], [], []
