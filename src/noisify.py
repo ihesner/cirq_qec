@@ -407,7 +407,7 @@ def cirq_noisify_idle(clean_circuit:cq.Circuit, noise_model,
 # End cirq_noisify
 
 
-def cirq_noisify_leakage(clean_circuit:cq.Circuit, noise_model, 
+def qutrit_noisify_stim(clean_circuit:cq.Circuit, noise_model, 
                  use_average=True, pipelined=True,
                  timings={"CZ": 140e-9, "M": 400e-9, "else": 48e-9},
                  echo=True):
@@ -441,36 +441,41 @@ def cirq_noisify_leakage(clean_circuit:cq.Circuit, noise_model,
 
     for moment in clean_circuit:
         pre_noise, post_noise, extra_noise = [], [], []
-        operated_qubits = []
+        operated_qutrits = []
 
         # Adding Gate Noise
         for op in moment:
 
             for qubit in op.qubits:
-                operated_qubits.append(qubit)
+                operated_qutrits.append(qubit)
             qb = "average" if use_average else op.qubits[0].x
 
             # Measurement Noise
             if isinstance(op.gate, cq.MeasurementGate):
-                pre_noise.append(
-                    cq.bit_flip(p=noise_model[qb]['ro']).on_each(*op.qubits))
-
+                pre_noise.append(QutritBitFlip(
+                    p=noise_model[qb]['ro']).on_each(*op.qubits))
+                
             # Two Qubit Gate Noise
-            elif type(op.gate) in (cq.CZPowGate, cq.CXPowGate):
+            elif type(op.gate) in (cq.CZPowGate, cq.CXPowGate,
+                                   TwoQutritGate):
                 q1, q2 = op.qubits[0].x, op.qubits[1].x
                 p = noise_model['average']['two_qubit'] if use_average\
                     else noise_model[q1]['two_qubit'][q2]
                 post_noise.append(
-                    cq.depolarize(p, n_qubits=2).on(*op.qubits)
+                    TwoQutritMixture(
+                        cq.depolarize(p, n_qubits=2)).on(*op.qubits)
                 )
                 
             # Single Qubit Noise
             elif type(op.gate) in (cq.YPowGate, cq.XPowGate, 
                                 cq.ops.pauli_gates._PauliY, 
                                 cq.ops.pauli_gates._PauliX,
-                               cq.ops.common_gates.HPowGate):
+                               cq.ops.common_gates.HPowGate,
+                               SingleQutritGate):
                 post_noise.append(
-                    cq.depolarize(noise_model[qb]['single']).on_each(*op.qubits))
+                    SingleQutritMixture(
+                        cq.depolarize(
+                            noise_model[qb]['single'])).on_each(*op.qubits))
 
             # Virtual Z Noise
             elif type(op.gate) in (cq.ZPowGate, 
@@ -481,8 +486,8 @@ def cirq_noisify_leakage(clean_circuit:cq.Circuit, noise_model,
 
         # Add Idle Noise on other qubits
         t2 = "t2_echo" if echo else "t2_star"
-        for qubit in system_qubits:
-            if qubit in operated_qubits:
+        for qubit in system_qutrits:
+            if qubit in operated_qutrits:
                 pass # No idle noise added
             else:
                 qb = 'average' if use_average else qubit.x
@@ -496,41 +501,43 @@ def cirq_noisify_leakage(clean_circuit:cq.Circuit, noise_model,
                         pass # No idling for pipelined approach
                     else:
                         # T1 decay
-                        amp_damp = cq.AmplitudeDampingChannel(
+                        amp_damp = SingleQutritMixture(cq.AmplitudeDampingChannel(
                             gamma=1-np.exp(-timings['M']/noise_model[qb]['t1'])
-                            ).on(qubit)
+                            )).on(qubit)
                         # T2 decay
-                        phase_damp = cq.phase_flip(
+                        phase_damp = SingleQutritMixture(cq.phase_flip(
                                 p=1-np.exp(-timings['M']/noise_model[qb][t2])
-                                ).on(qubit)
+                                )).on(qubit)
                         post_noise.append(amp_damp)
                         extra_noise.append(phase_damp)
 
                 # Two-qubit Gate
-                elif isinstance(op.gate, cq.CZPowGate):
+                elif type(op.gate) in [cq.CZPowGate,
+                                       TwoQutritGate]:
                     # T1 decay
-                    amp_damp = cq.AmplitudeDampingChannel(
+                    amp_damp = SingleQutritMixture(cq.AmplitudeDampingChannel(
                         gamma=1-np.exp(-timings['CZ']/noise_model[qb]['t1'])
-                        ).on(qubit)
+                        )).on(qubit)
                     # T2 decay
-                    phase_damp = cq.phase_flip(
+                    phase_damp = SingleQutritMixture(cq.phase_flip(
                             p=1-np.exp(-timings['CZ']/noise_model[qb][t2])
-                            ).on(qubit)
+                            )).on(qubit)
                     post_noise.append(amp_damp)
                     extra_noise.append(phase_damp)
                 # Single qubit gates
                 elif type(op.gate) in (cq.YPowGate, cq.XPowGate, 
                                cq.ops.pauli_gates._PauliY, 
                                cq.ops.pauli_gates._PauliX,
-                               cq.ops.common_gates.HPowGate):
+                               cq.ops.common_gates.HPowGate,
+                               SingleQutritGate):
                     # T1 decay
-                    amp_damp = cq.AmplitudeDampingChannel(
+                    amp_damp = SingleQutritMixture(cq.AmplitudeDampingChannel(
                         gamma=1-np.exp(-timings['else']/noise_model[qb]['t1'])
-                        ).on(qubit)
+                        )).on(qubit)
                     # T2 decay
-                    phase_damp = cq.phase_flip(
+                    phase_damp = SingleQutritMixture(cq.phase_flip(
                             p=1-np.exp(-timings['else']/noise_model[qb][t2])
-                            ).on(qubit)
+                            )).on(qubit)
                     post_noise.append(amp_damp)
                     extra_noise.append(phase_damp)
                 else:
