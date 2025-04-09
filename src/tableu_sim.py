@@ -1,15 +1,17 @@
 import numpy as np
 
 
-all_gates = ["C_XYZ", "C_ZYX", "H", "H_YZ", "I","Y","SQRT_Y","SQRT_Y_DAG", "CX", "CY","CZ","XCX", "XCY", "XCZ", "YCX", "YCY", "YCZ", "R", "RX", "RY","M", "MX", "MY"]
+all_gates = ["C_XYZ", "C_ZYX", "H", "H_YZ", "I","Y","SQRT_Y","SQRT_Y_DAG", "CX", "CY","CZ","XCX", "XCY", "XCZ", "YCX", "YCY", "YCZ", "R", "RX", "RY","M", "MX", "MY","X","Y","Z"]
 
-single_qubit_gates = ["H","I","Y","SQRT_Y","SQRT_Y_DAG", "R", "RX", "RY","M", "MX", "MY"]
+single_qubit_gates = ["H","I","Y","SQRT_Y","SQRT_Y_DAG", "R", "RX", "RY","M", "MX", "MY","X","Y","Z"]
 
 all_errors = ["DEPOLARIZE1", "DEPOLARIZE2", "X_ERROR", "Z_ERROR","PAULI_CHANNEL_1"]
 
 ANNOTATION_OPS = {"OBSERVABLE_INCLUDE", "DETECTOR", "SHIFT_COORDS", "QUBIT_COORDS"}
 
 import stim
+
+#FIXME: be careful with the *target, it can mess up the order
 
 def apply_cz_gate(simulator,bits,qubit_indices,p_L):
 
@@ -24,9 +26,9 @@ def apply_cz_gate(simulator,bits,qubit_indices,p_L):
 
     
     #depolarizing probabilities due to leakage: 0 for now
-    p1 = 0
+    p1 = 0.015 #two qubit error from nature 2022 paper
     p2 = 0
-    #FIXME: check a value for depolarizing channel
+    #FIXME: check again value for depolarizing channel
     
     
     qubit1 = qubit_indices[0]
@@ -97,7 +99,9 @@ def apply_gates(name, targets,simulator,leak_info):
     elif name == 'SWAP':
         simulator.swap(*targets)
     elif name == 'M':
-        simulator.measure_many(*targets)
+        for target in targets:
+            simulator.measure(target.value)
+            
     elif name == 'TICK':
         pass
     else:
@@ -118,10 +122,13 @@ def apply_error(name,probabilities,targets,simulator):
         the_circuit = stim.Circuit()
         the_circuit.append("PAULI_CHANNEL_1", *targets,probabilities)
         simulator.do_circuit(the_circuit)
+        
     elif name == 'PAULI_CHANNEL_2':
+    
         the_circuit = stim.Circuit()
-        the_circuit.append("PAULI_CHANNEL_2", *targets,probabilities)
+        the_circuit.append("PAULI_CHANNEL_2", *target,probabilities)
         simulator.do_circuit(the_circuit)
+        
     else:
         raise ValueError("Unsupported gate: {}".format(gate))
         
@@ -132,14 +139,14 @@ def apply_annotation(name,targets,simulator):
     if name == 'DETECTOR':
         detector = 0
         for x in targets:
-            detector += measurements[x.value]
+            detector += int(measurements[x.value])
     
         return detector%2
         
     elif name == 'OBSERVABLE_INCLUDE':
         obs = 0
         for x in targets:
-            obs +=  measurements[x.value]
+            obs +=  int(measurements[x.value])
     
         return obs%2
         
@@ -235,6 +242,8 @@ def circuit_to_tableau_simulator(circuit: stim.Circuit, p_L, T_D, num_qubits):
                         simulator.x(idx)
                     
                     indx_unleak +=1
+                    
+        else: print("something is missing " + gate)
             
         
     return detectors, observables, bits
