@@ -1,9 +1,9 @@
 import numpy as np
 
 
-all_gates = ["C_XYZ", "C_ZYX", "H", "H_YZ", "I","Y","SQRT_Y","SQRT_Y_DAG", "CX", "CY","CZ","XCX", "XCY", "XCZ", "YCX", "YCY", "YCZ", "R", "RX", "RY","M", "MX", "MY","X","Y","Z"]
+all_gates = ["C_XYZ", "C_ZYX", "H", "H_YZ", "I","Y","SQRT_Y","SQRT_Y_DAG", 'SQRT_X_DAG', "CX", "CY","CZ","XCX", "XCY", "XCZ", "YCX", "YCY", "YCZ", "R", "RX", "RY","M", "MX", "MY","X","Y","Z"]
 
-single_qubit_gates = ["H","I","Y","SQRT_Y","SQRT_Y_DAG", "R", "RX", "RY","M", "MX", "MY","X","Y","Z"]
+single_qubit_gates = ["H","I","Y","SQRT_Y","SQRT_Y_DAG", 'SQRT_X_DAG', "R", "RX", "RY","M", "MX", "MY","X","Y","Z"]
 
 all_errors = ["DEPOLARIZE1", "DEPOLARIZE2", "X_ERROR", "Z_ERROR","PAULI_CHANNEL_1"]
 
@@ -80,6 +80,8 @@ def apply_gates(name, targets,simulator,leak_info):
         simulator.sqrt_y(*targets)
     elif name == 'SQRT_Y_DAG':
         simulator.sqrt_y_dag(*targets)
+    elif name == 'SQRT_X_DAG':
+        simulator.sqrt_x_dag(*targets)
     elif name == 'CNOT':
         simulator.cnot(*targets)
     elif name == 'CX':
@@ -206,9 +208,9 @@ def circuit_to_tableau_simulator(circuit: stim.Circuit, p_L, T_D, num_qubits):
             
         elif gate == 'TICK': #Apply leakage decay
             
-            if previous_gate == 'CZ': gate_time = 100 #ns
+            if previous_gate == 'CZ': gate_time = 140 #ns
             elif previous_gate == 'M': gate_time = 400 #ns
-            elif previous_gate in single_qubit_gates : gate_time = 24 #ns
+            elif previous_gate in single_qubit_gates : gate_time = 48 #ns
     
             #T_D = 1e3 * 23.24 #ns #Estimated leakage decay time
             p_D = 1 - np.exp(-gate_time/T_D)
@@ -246,4 +248,5 @@ def circuit_to_tableau_simulator(circuit: stim.Circuit, p_L, T_D, num_qubits):
         else: print("something is missing " + gate)
             
         
-    return detectors, observables, bits
+    return detectors, observables, bits, simulator.current_measurement_record()
+
