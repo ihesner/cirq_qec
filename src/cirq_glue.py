@@ -82,11 +82,31 @@ def convert_to_cirq(circuit:stim.Circuit, noise_model=None,
         elif simulation_noise == 'idle':
             clean_cirq_circuit = cirq_noisify_idle(clean_cirq_circuit, 
                                           noise_model=noise_model)
+        elif simulation_noise == "with_coherent_error":
+            clean_cirq_circuit = cirq_noisify_idle(clean_cirq_circuit, 
+                                          noise_model=noise_model)
+            clean_cirq_circuit = add_coherent_error(clean_cirq_circuit,)
         else:
             raise AttributeError("Specify a specific cirq simulation method.")
         
     return clean_cirq_circuit
 # End convert_to_cirq
+
+
+def add_coherent_error(cirq_circuit, rotation=.11*np.pi):
+
+    new_moments = []
+    for moment in cirq_circuit:
+        new_moments.append(moment)
+
+        if len(moment.operations) == 7 and \
+        isinstance(moment.operations[0].gate, cq.MeasurementGate):
+            new_moments.append(
+                cq.Moment(cq.ry(rotation).on(cq.LineQubit(1)))
+                )
+
+    return cq.Circuit(new_moments)
+# End add_coherent_error
     
 
 def get_expectation(readout='zz', init='z', shots=int(1e4), 
