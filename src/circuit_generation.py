@@ -593,3 +593,233 @@ def check_connection(qb1, qb2) -> bool:
 
     return abs(x1 - x2) == 1 and abs(y1 - y2) == 1
 # End check_connection
+
+
+
+def generate_sc_circuit(initialize="z",
+                        readout="zz",
+                        pauli_updates=None,
+                        full_idles=3,
+                        # split_idles=2,
+                        rotate=True,
+                        init_detectors=False,
+                        z_detectors="all",
+                        x_detectors="bulk",
+                        # include_observable=True,
+                        preselect_mmt=True,
+                        excite=False,
+                        arb_init=False):
+    """Note this method only has the goal of getting detector likelihoods out.
+    This is for Figure 7 generation 
+
+    Args:
+        initialize (str, optional): _description_. Defaults to "z".
+        readout (str, optional): _description_. Defaults to "zz".
+        pauli_updates (_type_, optional): _description_. Defaults to None.
+        full_idles (int, optional): _description_. Defaults to 3.
+        rotate (bool, optional): _description_. Defaults to True.
+        init_detectors (bool, optional): _description_. Defaults to True.
+        z_detectors (str, optional): _description_. Defaults to "all".
+        x_detectors (str, optional): _description_. Defaults to "bulk".
+        include_observable (bool, optional): _description_. Defaults to True.
+        preselect_mmt (bool, optional): _description_. Defaults to True.
+        excite (bool, optional): _description_. Defaults to False.
+        arb_init (bool, optional): _description_. Defaults to False.
+
+    Raises:
+        ValueError: _description_
+        KeyError: _description_
+        KeyError: _description_
+
+    Returns:
+        _type_: _description_
+    """
+    
+    # Starting with Qubit coords #
+    circuit = stim.Circuit()
+    mtrack = measurement_tracker()
+    
+    # Defining qubits coords as [x_index, y_index, t, ?, bulk(0=bulk, 1=non-bulk)]
+    # Det coords, x, y, t, x/z, bulk
+    for qb in cc.device_coords:
+        circuit.append("QUBIT_COORDS", qb, cc.device_coords[qb] + [0, 1])
+
+    # Initialization #
+    # preselection measurement
+    if preselect_mmt:
+        circuit.append("M", cc.targets['all'])
+        mtrack.add_mmts(cc.targets["all"])
+
+    # Initialize basis #
+    if arb_init:
+        circuit.append("TICK")
+        circuit.append("SQRT_Y", [5, 11, 7, 13])
+        if initialize == 'z':
+            if excite: 
+                circuit.append('X', [9])
+        elif initialize == "x":
+            circuit.append('SQRT_Y', [9])
+            if excite: 
+                circuit.append('Z', [9])
+        elif initialize == 'y':
+            circuit.append('SQRT_X', [9])
+            if excite: 
+                circuit.append('Z', [9])
+        else:
+            raise ValueError("Initialization need to be in 'zxy'.")
+    else:
+        # OLD INIT
+        if initialize == "x":
+            circuit.append("TICK")
+            circuit.append("SQRT_Y", cc.targets['data'])
+        elif initialize == 'y':
+            circuit.append("TICK")
+            circuit.append("SQRT_Y", [5, 11, 7, 13])
+            circuit.append("SQRT_X", [9])
+        else:
+            pass # Already in z state
+        # Exciting qubit
+        if excite:
+            if initialize == 'z':
+                circuit.append('X', [3, 9, 15])
+            elif initialize == 'x':
+                circuit.append('Z', [5, 9, 13])
+            elif initialize == 'y':
+                circuit.append('Z', [9])
+
+    # Initialization detectors
+    if init_detectors:
+        for qb in cc.device_coords:
+            circuit.append("DETECTOR", 
+                    stim.target_rec(mtrack.get_targets(qb, -1)),
+                    cc.device_coords[qb] + [0, 1, 0])
+        circuit.append("SHIFT_COORDS", [], (0, 0, 1))
+            
+    # Repeated cycles 
+    for i in range(full_idles):
+        # Z stabilizer measurement
+        circuit += cc.stabilizer_round('z', rotate=rotate)
+        circuit.append("TICK")
+        circuit.append("M", cc.targets['z_stabs'])
+        mtrack.add_mmts(cc.targets['z_stabs'])
+        # z-detectors 
+        if i == 0 and z_detectors == "all" and initialize == 'z':
+            if arb_init:
+                circuit.append("DETECTOR", stim.target_rec(-1), [0, 2, 0, 1, 0])
+                circuit.append("DETECTOR", stim.target_rec(-2), [6, 4, 0, 1, 0])
+            else:
+                for stab in cc.targets['z_stabs']:
+                    prev_rounds = [-1, -2] if preselect_mmt else [-1]
+                    targets = mtrack.get_targets(stab, prev_rounds)
+                    if preselect_mmt:
+                        targets += mtrack.get_targets(
+                            get_adj_qubits(stab, cc.device_coords), -1)
+                    circuit.append("DETECTOR", 
+                                    [stim.target_rec(t) for t in targets], 
+                                    cc.device_coords[stab] + [0, 1, 0])
+
+        # First round, requires initialization readouts on data qubits
+        if i == 1 and z_detectors is not None:
+            pass# Ignore init detectors because of arb state gen
+            for stab in cc.targets['z_stabs']:
+                prev_rounds = [-1, -3] if preselect_mmt else [-1]
+                targets = mtrack.get_targets(stab, prev_rounds)
+                # if i == 0:
+                #     targets += mtrack.get_targets(
+                #         get_adj_qubits(stab, cc.device_coords), -1)
+                circuit.append("DETECTOR", 
+                                [stim.target_rec(t) for t in targets], 
+                                cc.device_coords[stab] + [0, 1, 1])
+        # Bulk
+        elif i > 1 and z_detectors is not None:
+            for stab in cc.targets['z_stabs']:
+                targets = mtrack.get_targets(stab, [-1, -3])
+                circuit.append("DETECTOR", 
+                                [stim.target_rec(t) for t in targets], 
+                                cc.device_coords[stab] + [0, 1, 1])
+        # Warn if throwing out first round detectors due to init basis.
+        elif i == 0 and z_detectors == "all" and initialize != 'z':
+            pass
+            # logging.warning("Throwing out first round detectors because "+\
+            #               "initializing in x/y results in indeterminitic "+\
+            #               "first round detetectors.")
+        circuit.append("SHIFT_COORDS", [], (0, 0, 1))
+
+        # X stabilizer measurement
+        circuit += cc.stabilizer_round('x', rotate=rotate)
+        circuit.append("TICK")
+        circuit.append("M", cc.targets['x_stabs'])
+        mtrack.add_mmts(cc.targets['x_stabs'])
+        # Add Split mmts during last idle round.
+        # if i == full_idles - 1:
+        #     circuit.append("M", [5, 9, 13])
+        #     mtrack.add_mmts([5, 9, 13])
+        # x-detectors
+        if x_detectors is not None and i > 0:
+            for stab in cc.targets['x_stabs']:
+                targets = mtrack.get_targets(stab, [-1, -3])
+                circuit.append("DETECTOR", 
+                                [stim.target_rec(t) for t in targets], 
+                                cc.device_coords[stab] + [0, 0, 1])
+        elif i == 0 and x_detectors == 'all':
+            for stab in cc.targets['x_stabs']:
+                targets = [-1,-3] if preselect_mmt else [-1]
+                targets = mtrack.get_targets(stab, targets)
+                circuit.append("DETECTOR", 
+                                [stim.target_rec(t) for t in targets], 
+                                cc.device_coords[stab] + [0, 0, 1])
+        circuit.append("SHIFT_COORDS", [], (0, 0, 1))
+
+
+    # Readout #
+    # Prepare left rep code readout
+    if readout[0] == 'z':
+        pass # Already in desired basis
+    elif readout[0] == "x":
+        circuit.append("SQRT_Y_DAG", [2, 3, 7])
+    elif readout[0] == "y":
+        circuit.append("SQRT_Y_DAG", [2, 7])
+        circuit.append("SQRT_X_DAG", [3])
+    else:
+        raise KeyError("Readout for the left code should be in ['z', 'x', 'y']")
+    # Prepare right rep code readout
+    if readout[1] == 'z':
+        pass # Already in desired basis
+    elif readout[1] == "x":
+        circuit.append("SQRT_Y_DAG", [11, 15, 16])
+    elif readout[1] == "y":
+        circuit.append("SQRT_Y_DAG", [11, 16])
+        circuit.append("SQRT_X_DAG", [15])
+    else:
+        raise KeyError("Readout for the right code should be in ['z', 'x', 'y']")
+
+    # Final Readout
+    circuit.append("TICK")
+    circuit.append("M", cc.targets['all'])
+    mtrack.add_mmts(cc.targets['all'])
+
+    # Final Detectors
+    # if z_detectors is not None:
+    #     # Second to last detectors (last bulk detector)
+    #     for stab in cc.targets["z_stabs"]:
+    #         targets = mtrack.get_targets(stab, [-1, -3])
+    #         circuit.append("DETECTOR", 
+    #                     [stim.target_rec(t) for t in targets],
+    #                     cc.device_coords[stab] + [0, 1, 0])
+    #     circuit.append("SHIFT_COORDS", [], (0, 0, 1))
+    # if z_detectors == "all":
+    #     # Detectors including data readouts
+    #     for stab in cc.targets['z_stabs']:
+    #         if (readout[0] == 'z' and stab in [1, 8]) \
+    #         or (readout[1] == 'z' and stab in [10,17]):
+    #             targets = mtrack.get_targets(stab, [-1, -2])
+    #             # include data readouts
+    #             targets += mtrack.get_targets(
+    #                                 get_adj_qubits(stab, cc.device_coords, 
+    #                                                 exclude_center=True), -1)
+    #             circuit.append("DETECTOR", 
+    #                         [stim.target_rec(t) for t in targets],
+    #                         cc.device_coords[stab] + [0, 1, 0])
+                
+    return circuit, mtrack
+# End generate_sc_circuit

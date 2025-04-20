@@ -163,13 +163,13 @@ class SingleQutritMixture(cq.Gate):
                     np.array([[g[0][0], g[0][1], 0.],
                               [g[1][0], g[1][1], 0.],
                               [     0.,      0., 1 ]])))
-        return new_mixture
+        return (new_mixture)
     # End _mixture_
-    
+
     def _circuit_diagram_info_(self, args):
         return self.single_qb_mixture._circuit_diagram_info_(args)
     
-### End qutrit_gate class ###
+### End SingleQutritMixture class ###
 
 
 def qutritify(qubit_circuit:cq.Circuit) -> cq.Circuit:

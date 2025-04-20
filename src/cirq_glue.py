@@ -85,7 +85,8 @@ def convert_to_cirq(circuit:stim.Circuit, noise_model=None,
         elif simulation_noise == "with_coherent_error":
             clean_cirq_circuit = cirq_noisify_idle(clean_cirq_circuit, 
                                           noise_model=noise_model)
-            clean_cirq_circuit = add_coherent_error(clean_cirq_circuit,)
+            clean_cirq_circuit = add_coherent_error(clean_cirq_circuit,
+                                                    rotation=.11*np.pi)
         else:
             raise AttributeError("Specify a specific cirq simulation method.")
         
@@ -102,7 +103,7 @@ def add_coherent_error(cirq_circuit, rotation=.11*np.pi):
         if len(moment.operations) == 7 and \
         isinstance(moment.operations[0].gate, cq.MeasurementGate):
             new_moments.append(
-                cq.Moment(cq.ry(rotation).on(cq.LineQubit(1)))
+                cq.Moment(cq.rz(rotation).on(cq.LineQubit(1)))
                 )
 
     return cq.Circuit(new_moments)

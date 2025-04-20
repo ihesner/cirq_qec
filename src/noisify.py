@@ -2,6 +2,7 @@ import stim
 import cirq as cq
 import numpy as np
 from src.qutrit_gates import *
+from typing import Iterable
 
 
 def noisify(old_circuit:stim.Circuit,
@@ -435,7 +436,7 @@ def qutrit_noisify_stim(clean_circuit:cq.Circuit, noise_model,
 
     # Likely need to initialize qutrits here.
     qutrits = []
-    for qb in clean_circuit.all_qubits():
+    for qb in system_qubits:
         qutrits.append(cq.LineQid(qb.x, dimension=3))
     system_qutrits = frozenset(qutrits)
 
@@ -445,7 +446,7 @@ def qutrit_noisify_stim(clean_circuit:cq.Circuit, noise_model,
 
         # Adding Gate Noise
         for op in moment:
-
+            # Keep track of operated qutrits
             for qubit in op.qubits:
                 operated_qutrits.append(qubit)
             qb = "average" if use_average else op.qubits[0].x
@@ -550,3 +551,41 @@ def qutrit_noisify_stim(clean_circuit:cq.Circuit, noise_model,
 
     return cq.Circuit(moments)
 # End cirq_noisify
+
+
+
+
+class NoiseModelTest(cq.NoiseModel):
+    """A default noise model that adds no noise."""
+
+    def noisy_moments(self, 
+                      moments: Iterable[cq.Moment], 
+                      system_qubits: Sequence[cq.Qid]):
+        return list(moments)
+    # End noisy_moments
+
+    def noisy_moment(self, 
+                     moment: cq.Moment, 
+                     system_qubits: Sequence[cq.Qid]
+                     ) -> cq.Moment:
+        return moment
+    # End noisy_moment
+
+    def noisy_operation(self, operation: cq.Operation) -> cq.Operation:
+        return operation
+    # End noisy_operation
+
+    def _value_equality_values_(self):
+        return None
+
+    def __str__(self) -> str:
+        return 'NoiseModelTest'
+
+    def __repr__(self) -> str:
+        return 'cirq.NoiseModelTest'
+
+    def _has_unitary_(self) -> bool:
+        return True
+
+    def _has_mixture_(self) -> bool:
+        return True
