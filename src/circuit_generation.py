@@ -238,7 +238,7 @@ def generate_split_circuit(initialize="z",
         circuit.append("M", cc.targets['z_stabs'])
         mtrack.add_mmts(cc.targets['z_stabs'])
         # z-detectors 
-        if i == 0 and z_detectors == "all" and initialize == 'z':
+        if i == 0 and z_detectors in ["all", "no_ro"] and initialize == 'z':
             if arb_init:
                 circuit.append("DETECTOR", stim.target_rec(-1), [0, 2, 0, 1, 0])
                 circuit.append("DETECTOR", stim.target_rec(-2), [6, 4, 0, 1, 0])
@@ -273,7 +273,7 @@ def generate_split_circuit(initialize="z",
                                 [stim.target_rec(t) for t in targets], 
                                 cc.device_coords[stab] + [0, 1, 1])
         # Warn if throwing out first round detectors due to init basis.
-        elif i == 0 and z_detectors == "all" and initialize != 'z':
+        elif i == 0 and z_detectors in ["all", "no_ro"] and initialize != 'z':
             pass
             # logging.warning("Throwing out first round detectors because "+\
             #               "initializing in x/y results in indeterminitic "+\
@@ -703,7 +703,7 @@ def generate_sc_circuit(initialize="z",
         circuit.append("M", cc.targets['z_stabs'])
         mtrack.add_mmts(cc.targets['z_stabs'])
         # z-detectors 
-        if i == 0 and z_detectors == "all" and initialize == 'z':
+        if i == 0 and z_detectors in ["all", "no_ro"] and initialize == 'z':
             if arb_init:
                 circuit.append("DETECTOR", stim.target_rec(-1), [0, 2, 0, 1, 0])
                 circuit.append("DETECTOR", stim.target_rec(-2), [6, 4, 0, 1, 0])
@@ -738,7 +738,7 @@ def generate_sc_circuit(initialize="z",
                                 [stim.target_rec(t) for t in targets], 
                                 cc.device_coords[stab] + [0, 1, 1])
         # Warn if throwing out first round detectors due to init basis.
-        elif i == 0 and z_detectors == "all" and initialize != 'z':
+        elif i == 0 and z_detectors in ["all", "no_ro"] and initialize != 'z':
             pass
             # logging.warning("Throwing out first round detectors because "+\
             #               "initializing in x/y results in indeterminitic "+\
